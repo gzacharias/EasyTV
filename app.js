@@ -248,9 +248,13 @@ function render_season_row(season, show_id) {
         current_access_token
       );
       episodes_div.textContent = "";
+      let first_unseen_shown = false;
       for (const ep of episode_details) {
         const progress = completion_by_number.get(ep.number) ?? { completed: false };
-        episodes_div.appendChild(render_episode_row({ ...progress, ...ep }));
+        const merged = { ...progress, ...ep };
+        const auto_open = !merged.completed && !first_unseen_shown;
+        if (auto_open) first_unseen_shown = true;
+        episodes_div.appendChild(render_episode_row(merged, auto_open));
       }
     } catch (error) {
       episodes_div.textContent = `Error loading episodes: ${error.message}`;
@@ -260,13 +264,13 @@ function render_season_row(season, show_id) {
   return details;
 }
 
-function render_episode_row(episode) {
+function render_episode_row(episode, auto_open = false) {
   const div = document.createElement("div");
   div.className = `episode-row ${episode.completed ? "watched" : "unwatched"}`;
   const ep_num = `E${String(episode.number).padStart(2, "0")}`;
   if (episode.overview) {
     const details = document.createElement("details");
-    if (!episode.completed) details.open = true;
+    if (auto_open) details.open = true;
     const summary = document.createElement("summary");
     summary.className = "episode-summary";
     summary.style.color = episode.completed ? "#888" : "#000";

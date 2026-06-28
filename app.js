@@ -158,16 +158,30 @@ async function run_device_login() {
   try {
     const device = await start_device_flow();
 
+    const popup_width = 520;
+    const popup_height = 600;
+    const popup_left = window.screenX + Math.round((window.outerWidth - popup_width) / 2);
+    const popup_top = window.screenY + Math.round((window.outerHeight - popup_height) / 2);
+    const auth_popup = window.open(device.verification_url, "trakt-auth",
+      `width=${popup_width},height=${popup_height},left=${popup_left},top=${popup_top}`);
+
+    navigator.clipboard.writeText(device.user_code).then(() => {
+      const copied_span = document.createElement("span");
+      copied_span.textContent = " [copied to clipboard]";
+      code_el.appendChild(copied_span);
+    }).catch(() => {});
+
     code_el.hidden = false;
-    code_el.innerHTML = `
-      Go to <a href="${device.verification_url}" target="_blank">${device.verification_url}</a>
-      and enter the code: <strong>${device.user_code}</strong>
-    `;
+    const code_strong = document.createElement("strong");
+    code_strong.textContent = device.user_code;
+    code_el.textContent = "Enter this code in the popup: ";
+    code_el.appendChild(code_strong);
     status_el.textContent = "Waiting for authorization…";
 
     const token_data = await poll_for_token(device.device_code, device.interval);
+    if (auth_popup && !auth_popup.closed) auth_popup.close();
     code_el.hidden = true;
-    code_el.innerHTML = "";
+    code_el.textContent = "";
     status_el.textContent = "";
     localStorage.setItem(trakt_access_token_key, token_data.access_token);
     await load_watchlist(token_data.access_token);

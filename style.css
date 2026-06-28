@@ -161,10 +161,22 @@ summary.show-summary .show-meta {
   color: #888;
 }
 
+.show-expanded-header {
+  display: flex;
+  gap: 0.75rem;
+  margin-bottom: 0.75rem;
+  align-items: flex-start;
+}
+
+.show-poster {
+  width: 80px;
+  flex-shrink: 0;
+  border-radius: 3px;
+}
+
 .show-overview {
   color: #444;
   font-size: 0.85rem;
-  margin-bottom: 0.5rem;
 }
 
 .season-row {

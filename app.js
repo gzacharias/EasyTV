@@ -140,6 +140,12 @@ function render_show_row(item) {
         current_access_token
       );
       progress_container.textContent = "";
+      if (show.overview) {
+        const overview = document.createElement("p");
+        overview.className = "show-overview";
+        overview.textContent = show.overview;
+        progress_container.appendChild(overview);
+      }
       for (const season of progress.seasons) {
         progress_container.appendChild(render_season_row(season, show.ids.trakt));
       }

@@ -161,6 +161,12 @@ summary.show-summary .show-meta {
   color: #888;
 }
 
+.show-overview {
+  color: #444;
+  font-size: 0.85rem;
+  margin-bottom: 0.5rem;
+}
+
 .season-row {
   margin-bottom: 0.2rem;
 }

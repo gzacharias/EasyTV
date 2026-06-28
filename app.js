@@ -1,9 +1,3 @@
-console.log("login hidden:", document.getElementById("login-section").hidden);
-
-console.log("login display:", getComputedStyle(document.getElementById("login-section")).display);
-
-
-
 const TRAKT_API_BASE = "https://api.trakt.tv";
 
 const TRAKT_CLIENT_ID = "f2b09c63e8841656e79fb32c0c7e843146b19d96bac5b3d2f82a6e4ff870ea96";
@@ -68,6 +62,8 @@ async function trakt_post (path, params) {
 
 class AuthError extends Error {};
 
+let current_access_token = null;
+
 
 // --- Auth / device flow ---
 
@@ -102,6 +98,10 @@ async function poll_for_token(device_code, interval_seconds) {
   }
 }
 
+function sort_title(title) {
+  return title.replace(/^(A|The) /i, "");
+}
+
 // --- Rendering ---
 
 function format_date_added(iso_string) {
@@ -109,29 +109,91 @@ function format_date_added(iso_string) {
   return `Added ${date.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}`;
 }
 
-function render_show_card(item) {
+function render_show_row(item) {
   const { show, listed_at } = item;
 
-  const card = document.createElement("div");
-  card.className = "show-card";
+  const details = document.createElement("details");
+  details.className = "show-row";
+
+  const summary = document.createElement("summary");
+  summary.className = "show-summary";
   const title_span = document.createElement("span");
   title_span.className = "show-title";
   title_span.textContent = show.title;
   const year_span = document.createElement("span");
   year_span.className = "show-year";
   year_span.textContent = show.year ?? "";
+  const network_span = document.createElement("span");
+  network_span.className = "show-network";
+  network_span.textContent = show.network ?? "";
+  const status_span = document.createElement("span");
+  status_span.className = "show-status";
+  status_span.textContent = show.status ?? "";
   const added_span = document.createElement("span");
   added_span.className = "show-added";
   added_span.textContent = format_date_added(listed_at);
-  card.append(title_span, year_span, added_span);
-  return card;
+  summary.append(title_span, year_span, network_span, status_span, added_span);
+  details.appendChild(summary);
+
+  const progress_container = document.createElement("div");
+  progress_container.className = "show-progress";
+  details.appendChild(progress_container);
+
+  let progress_loaded = false;
+  details.addEventListener("toggle", async () => {
+    if (!details.open || progress_loaded) return;
+    progress_loaded = true;
+    progress_container.textContent = "Loading…";
+    try {
+      const progress = await trakt_get(
+        `/shows/${show.ids.trakt}/progress/watched?extended=full`,
+        current_access_token
+      );
+      progress_container.textContent = "";
+      for (const season of progress.seasons) {
+        progress_container.appendChild(render_season_row(season));
+      }
+    } catch (error) {
+      progress_container.textContent = `Error loading progress: ${error.message}`;
+    }
+  });
+
+  return details;
+}
+
+function render_season_row(season) {
+  const details = document.createElement("details");
+  details.className = "season-row";
+
+  const summary = document.createElement("summary");
+  summary.className = "season-summary";
+  const season_label = season.number === 0 ? "Specials" : `Season ${season.number}`;
+  summary.textContent = `${season_label}  ${season.completed}/${season.aired}`;
+  details.appendChild(summary);
+
+  const episodes_div = document.createElement("div");
+  episodes_div.className = "episodes-list";
+  for (const episode of season.episodes) {
+    episodes_div.appendChild(render_episode_row(episode));
+  }
+  details.appendChild(episodes_div);
+
+  return details;
+}
+
+function render_episode_row(episode) {
+  const div = document.createElement("div");
+  div.className = `episode-row ${episode.completed ? "watched" : "unwatched"}`;
+  const ep_num = `E${String(episode.number).padStart(2, "0")}`;
+  const title = episode.title ? ` — ${episode.title}` : "";
+  div.textContent = `${episode.completed ? "✓" : "○"} ${ep_num}${title}`;
+  return div;
 }
 
 // --- Views ---
 
 function show_login_view() {
-  console.log("show_login_view called", new Error().stack);
-  document.getElementById("login-section").hidden = false;
+document.getElementById("login-section").hidden = false;
   document.getElementById("watchlist-section").hidden = true;
   document.getElementById("user-info").innerHTML = "";
   const code_el = document.getElementById("device-code-display");
@@ -194,6 +256,7 @@ async function run_device_login() {
 }
 
 async function load_watchlist(access_token) {
+  current_access_token = access_token;
   show_watchlist_view();
   const status_el = document.getElementById("watchlist-status");
   const grid_el = document.getElementById("shows-grid");
@@ -202,10 +265,48 @@ async function load_watchlist(access_token) {
   grid_el.innerHTML = "";
 
   try {
-    const [profile, watchlist] = await Promise.all([
+    const [profile, watchlist_items, watched_items] = await Promise.all([
       trakt_get("/users/me", access_token),
-      trakt_get("/users/me/watchlist/shows?sort_by=added&sort_how=desc", access_token),
+      trakt_get("/users/me/watchlist/shows?extended=full", access_token),
+      trakt_get("/users/me/watched/shows?extended=full", access_token),
     ]);
+
+    const hidden_items = await trakt_get("/users/hidden/progress_watched?type=show&limit=1000", access_token)
+      .catch(e => { console.warn("Hidden shows fetch failed:", e.message); return []; });
+    const hidden_ids = new Set(hidden_items.map(item => item.show.ids.trakt));
+
+    // Build union keyed by trakt show ID
+    const shows_by_id = new Map();
+
+    for (const item of watchlist_items) {
+      shows_by_id.set(item.show.ids.trakt, {
+        show: item.show,
+        listed_at: item.listed_at,
+        watched_count: 0,
+      });
+    }
+
+    for (const item of watched_items) {
+      const watched_count = item.seasons.reduce(
+        (total, season) => total + season.episodes.length, 0
+      );
+      const existing = shows_by_id.get(item.show.ids.trakt);
+      if (existing) {
+        existing.watched_count = watched_count;
+      } else {
+        shows_by_id.set(item.show.ids.trakt, {
+          show: item.show,
+          listed_at: item.last_watched_at,
+          watched_count,
+        });
+      }
+    }
+
+    // Only shows with unwatched aired episodes, sorted by title
+    const shows = Array.from(shows_by_id.values())
+      .filter(item => !hidden_ids.has(item.show.ids.trakt))
+      .filter(item => (item.show.aired_episodes ?? 0) > item.watched_count)
+      .sort((a, b) => sort_title(a.show.title).localeCompare(sort_title(b.show.title)));
 
     const logout_btn = document.createElement("button");
     logout_btn.id = "logout-btn";
@@ -219,9 +320,9 @@ async function load_watchlist(access_token) {
     user_info_el.textContent = profile.username + " ";
     user_info_el.appendChild(logout_btn);
 
-    status_el.textContent = `${watchlist.length} show${watchlist.length !== 1 ? "s" : ""}`;
-    for (const item of watchlist) {
-      grid_el.appendChild(render_show_card(item));
+    status_el.textContent = `${shows.length} show${shows.length !== 1 ? "s" : ""}`;
+    for (const item of shows) {
+      grid_el.appendChild(render_show_row(item));
     }
   } catch (error) {
     if (error instanceof AuthError) {

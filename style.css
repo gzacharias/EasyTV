@@ -111,25 +111,110 @@ button:disabled {
   flex-direction: column;
 }
 
-.show-card {
+.show-row {
+  border-bottom: 1px solid #eee;
+}
+
+summary.show-summary {
   display: flex;
   align-items: baseline;
   gap: 0.5rem;
   padding: 0.4rem 0;
-  border-bottom: 1px solid #eee;
+  cursor: pointer;
+  list-style: none;
 }
 
-.show-card .show-title {
+summary.show-summary::-webkit-details-marker { display: none; }
+
+summary.show-summary::before {
+  content: "▶";
+  font-size: 0.55rem;
+  color: #aaa;
+  flex-shrink: 0;
+  transition: transform 0.15s;
+  position: relative;
+  top: -0.05em;
+}
+
+.show-row[open] > summary.show-summary::before {
+  transform: rotate(90deg);
+}
+
+summary.show-summary .show-title {
   font-weight: 600;
 }
 
-.show-card .show-year {
+summary.show-summary .show-year {
   color: #555;
   font-size: 0.875rem;
 }
 
-.show-card .show-added {
+summary.show-summary .show-network {
+  color: #555;
+  font-size: 0.875rem;
+}
+
+summary.show-summary .show-status {
+  color: #999;
+  font-size: 0.8rem;
+  font-style: italic;
+}
+
+summary.show-summary .show-added {
   color: #999;
   font-size: 0.8rem;
   margin-left: auto;
+}
+
+.show-progress {
+  padding: 0.25rem 0 0.5rem 1.25rem;
+  font-size: 0.875rem;
+  color: #888;
+}
+
+.season-row {
+  margin-bottom: 0.2rem;
+}
+
+summary.season-summary {
+  list-style: none;
+  cursor: pointer;
+  padding: 0.2rem 0;
+  font-size: 0.875rem;
+  color: #333;
+}
+
+summary.season-summary::-webkit-details-marker { display: none; }
+
+summary.season-summary::before {
+  content: "▶";
+  font-size: 0.5rem;
+  color: #aaa;
+  margin-right: 0.4rem;
+  display: inline-block;
+  transition: transform 0.15s;
+}
+
+.season-row[open] > summary.season-summary::before {
+  transform: rotate(90deg);
+}
+
+.episodes-list {
+  padding-left: 1.25rem;
+  padding-bottom: 0.25rem;
+}
+
+.episode-row {
+  padding: 0.15rem 0;
+  font-size: 0.8rem;
+  font-family: monospace;
+}
+
+.episode-row.watched {
+  color: #888;
+}
+
+.episode-row.unwatched {
+  color: #111;
+  font-weight: 600;
 }

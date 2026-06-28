@@ -104,11 +104,6 @@ function sort_title(title) {
 
 // --- Rendering ---
 
-function format_date_added(iso_string) {
-  const date = new Date(iso_string);
-  return `Added ${date.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}`;
-}
-
 function render_show_row(item) {
   const { show, listed_at } = item;
 
@@ -120,19 +115,14 @@ function render_show_row(item) {
   const title_span = document.createElement("span");
   title_span.className = "show-title";
   title_span.textContent = show.title;
-  const year_span = document.createElement("span");
-  year_span.className = "show-year";
-  year_span.textContent = show.year ?? "";
   const network_span = document.createElement("span");
   network_span.className = "show-network";
   network_span.textContent = show.network ?? "";
-  const status_span = document.createElement("span");
-  status_span.className = "show-status";
-  status_span.textContent = show.status ?? "";
-  const added_span = document.createElement("span");
-  added_span.className = "show-added";
-  added_span.textContent = format_date_added(listed_at);
-  summary.append(title_span, year_span, network_span, status_span, added_span);
+  const meta_parts = [show.year, show.status].filter(Boolean);
+  const meta_span = document.createElement("span");
+  meta_span.className = "show-meta";
+  meta_span.textContent = meta_parts.join(", ");
+  summary.append(title_span, network_span, meta_span);
   details.appendChild(summary);
 
   const progress_container = document.createElement("div");
@@ -168,7 +158,9 @@ function render_season_row(season) {
   const summary = document.createElement("summary");
   summary.className = "season-summary";
   const season_label = season.number === 0 ? "Specials" : `Season ${season.number}`;
-  summary.textContent = `${season_label}  ${season.completed}/${season.aired}`;
+  const has_unseen = season.completed < season.aired;
+  if (has_unseen) summary.style.fontWeight = "bold";
+  summary.textContent = `${season_label} (${season.completed}/${season.aired})`;
   details.appendChild(summary);
 
   const episodes_div = document.createElement("div");

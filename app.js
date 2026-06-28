@@ -122,70 +122,101 @@ function sort_title(title) {
 // --- Rendering ---
 
 function render_show_row(item) {
-  const { show, listed_at } = item;
+  const { show } = item;
+  const unseen_count = (show.aired_episodes ?? 0) - item.watched_count;
 
-  const details = document.createElement("details");
-  details.className = "show-row";
+  const row_div = document.createElement("div");
+  row_div.className = "show-row";
 
-  const summary = document.createElement("summary");
-  summary.className = "show-summary";
-  const title_span = document.createElement("span");
-  title_span.className = "show-title";
-  title_span.textContent = show.title;
-  const network_span = document.createElement("span");
-  network_span.className = "show-network";
-  network_span.textContent = show.network ?? "";
+  // Header (always visible, clickable)
+  const header_div = document.createElement("div");
+  header_div.className = "show-header";
+
+  const poster_img = document.createElement("img");
+  poster_img.className = "show-poster-thumb";
+  poster_img.alt = show.title;
+
+  const info_div = document.createElement("div");
+  info_div.className = "show-info";
+
+  const title_line = document.createElement("div");
+  title_line.className = "show-title-line";
+  title_line.textContent = show.title;
+
+  const next_line = document.createElement("div");
+  next_line.className = "show-next-line";
+  next_line.textContent = `${unseen_count} episode${unseen_count !== 1 ? "s" : ""} left`;
+
+  const network_line = document.createElement("div");
+  network_line.className = "show-network-line";
+  network_line.textContent = show.network ?? "";
+
+  info_div.append(title_line, next_line, network_line);
   const meta_parts = [show.year, show.status].filter(Boolean);
-  const meta_span = document.createElement("span");
-  meta_span.className = "show-meta";
-  meta_span.textContent = meta_parts.join(", ");
-  summary.append(title_span, network_span, meta_span);
-  details.appendChild(summary);
+  const meta_suffix = meta_parts.length ? ` (${meta_parts.join(", ")})` : "";
+  const overview_text = (show.overview ?? "") + meta_suffix;
+  if (overview_text) {
+    const overview_line = document.createElement("div");
+    overview_line.className = "show-overview-line";
+    overview_line.textContent = overview_text;
+    info_div.appendChild(overview_line);
+  }
+  header_div.append(poster_img, info_div);
+  row_div.appendChild(header_div);
 
-  const progress_container = document.createElement("div");
-  progress_container.className = "show-progress";
-  details.appendChild(progress_container);
+  // Expanded content
+  const expanded_div = document.createElement("div");
+  expanded_div.className = "show-expanded";
+  expanded_div.hidden = true;
+  row_div.appendChild(expanded_div);
 
-  let progress_loaded = false;
-  details.addEventListener("toggle", async () => {
-    if (!details.open || progress_loaded) return;
-    progress_loaded = true;
-    progress_container.textContent = "Loading…";
-    try {
-      const progress = await trakt_get(
-        `/shows/${show.ids.trakt}/progress/watched?extended=full`,
-        current_access_token
-      );
-      progress_container.textContent = "";
-      const header_div = document.createElement("div");
-      header_div.className = "show-expanded-header";
-      if (show.overview) {
-        const overview = document.createElement("p");
-        overview.className = "show-overview";
-        overview.textContent = show.overview;
-        header_div.appendChild(overview);
+  // Fetch progress eagerly — used for "Up next" and for expanding seasons
+  const progress_promise = trakt_get(
+    `/shows/${show.ids.trakt}/progress/watched?extended=full`,
+    current_access_token
+  ).then(progress => {
+    if (progress.next_episode) {
+      const ep = progress.next_episode;
+      next_line.textContent = `Up next S${ep.season}E${ep.number} — ${unseen_count} episode${unseen_count !== 1 ? "s" : ""} left`;
+    }
+    return progress;
+  }).catch(() => null);
+
+  // Fetch poster eagerly
+  if (show.ids.tmdb) {
+    tmdb_get(`/tv/${show.ids.tmdb}`).then(tmdb => {
+      if (tmdb.poster_path) {
+        poster_img.src = `${TMDB_IMAGE_BASE}/w92${tmdb.poster_path}`;
       }
-      progress_container.appendChild(header_div);
-      if (show.ids.tmdb) {
-        tmdb_get(`/tv/${show.ids.tmdb}`).then(tmdb => {
-          if (tmdb.poster_path) {
-            const img = document.createElement("img");
-            img.className = "show-poster";
-            img.src = `${TMDB_IMAGE_BASE}/w185${tmdb.poster_path}`;
-            img.alt = show.title;
-            header_div.prepend(img);
+    }).catch(() => {});
+  }
+
+  // Click to expand/collapse
+  let seasons_rendered = false;
+  header_div.addEventListener("click", async () => {
+    const opening = expanded_div.hidden;
+    expanded_div.hidden = !opening;
+    row_div.classList.toggle("open", opening);
+    if (!expanded_div.hidden && !seasons_rendered) {
+      seasons_rendered = true;
+      const loading = document.createElement("div");
+      loading.textContent = "Loading…";
+      expanded_div.appendChild(loading);
+      try {
+        const progress = await progress_promise;
+        loading.remove();
+        if (progress) {
+          for (const season of progress.seasons) {
+            expanded_div.appendChild(render_season_row(season, show.ids.trakt));
           }
-        }).catch(e => console.error("TMDB error:", e));
+        }
+      } catch (error) {
+        loading.textContent = `Error loading progress: ${error.message}`;
       }
-      for (const season of progress.seasons) {
-        progress_container.appendChild(render_season_row(season, show.ids.trakt));
-      }
-    } catch (error) {
-      progress_container.textContent = `Error loading progress: ${error.message}`;
     }
   });
 
-  return details;
+  return row_div;
 }
 
 function render_season_row(season, show_id) {

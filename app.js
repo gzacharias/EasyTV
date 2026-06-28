@@ -141,7 +141,7 @@ function render_show_row(item) {
       );
       progress_container.textContent = "";
       for (const season of progress.seasons) {
-        progress_container.appendChild(render_season_row(season));
+        progress_container.appendChild(render_season_row(season, show.ids.trakt));
       }
     } catch (error) {
       progress_container.textContent = `Error loading progress: ${error.message}`;
@@ -151,24 +151,43 @@ function render_show_row(item) {
   return details;
 }
 
-function render_season_row(season) {
+function render_season_row(season, show_id) {
   const details = document.createElement("details");
   details.className = "season-row";
 
   const summary = document.createElement("summary");
   summary.className = "season-summary";
   const season_label = season.number === 0 ? "Specials" : `Season ${season.number}`;
-  const has_unseen = season.completed < season.aired;
-  if (has_unseen) summary.style.fontWeight = "bold";
-  summary.textContent = `${season_label} (${season.completed}/${season.aired})`;
+  const unseen_count = season.aired - season.completed;
+  if (unseen_count > 0) summary.style.fontWeight = "bold";
+  const count_label = unseen_count > 0 ? ` (${season.completed} seen, ${unseen_count} unseen)` : "";
+  summary.textContent = `${season_label}${count_label}`;
   details.appendChild(summary);
 
   const episodes_div = document.createElement("div");
   episodes_div.className = "episodes-list";
-  for (const episode of season.episodes) {
-    episodes_div.appendChild(render_episode_row(episode));
-  }
   details.appendChild(episodes_div);
+
+  const completion_by_number = new Map(season.episodes.map(ep => [ep.number, ep]));
+  let episodes_loaded = false;
+  details.addEventListener("toggle", async () => {
+    if (!details.open || episodes_loaded) return;
+    episodes_loaded = true;
+    episodes_div.textContent = "Loading…";
+    try {
+      const episode_details = await trakt_get(
+        `/shows/${show_id}/seasons/${season.number}?extended=full`,
+        current_access_token
+      );
+      episodes_div.textContent = "";
+      for (const ep of episode_details) {
+        const progress = completion_by_number.get(ep.number) ?? { completed: false };
+        episodes_div.appendChild(render_episode_row({ ...progress, ...ep }));
+      }
+    } catch (error) {
+      episodes_div.textContent = `Error loading episodes: ${error.message}`;
+    }
+  });
 
   return details;
 }
@@ -177,8 +196,22 @@ function render_episode_row(episode) {
   const div = document.createElement("div");
   div.className = `episode-row ${episode.completed ? "watched" : "unwatched"}`;
   const ep_num = `E${String(episode.number).padStart(2, "0")}`;
-  const title = episode.title ? ` — ${episode.title}` : "";
-  div.textContent = `${episode.completed ? "✓" : "○"} ${ep_num}${title}`;
+  if (episode.overview) {
+    const details = document.createElement("details");
+    if (!episode.completed) details.open = true;
+    const summary = document.createElement("summary");
+    summary.className = "episode-summary";
+    summary.style.color = episode.completed ? "#888" : "#000";
+    summary.textContent = `${episode.completed ? "✓" : "○"} ${ep_num}${episode.title ? ` — ${episode.title}` : ""}`;
+    const overview = document.createElement("div");
+    overview.className = "episode-overview";
+    overview.style.color = episode.completed ? "#888" : "#000";
+    overview.textContent = episode.overview;
+    details.append(summary, overview);
+    div.appendChild(details);
+  } else {
+    div.textContent = `${episode.completed ? "✓" : "○"} ${ep_num}${episode.title ? ` — ${episode.title}` : ""}`;
+  }
   return div;
 }
 

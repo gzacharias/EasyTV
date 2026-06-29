@@ -139,18 +139,6 @@ async function poll_for_token(device_code, interval_seconds) {
 
 // --- Notes API ---
 
-const local_notes = {
-  async get(show_id) {
-    return localStorage.getItem(`easytv.note.${show_id}`) ?? "";
-  },
-  async set(show_id, text) {
-    if (text.trim()) {
-      localStorage.setItem(`easytv.note.${show_id}`, text);
-    } else {
-      localStorage.removeItem(`easytv.note.${show_id}`);
-    }
-  },
-};
 
 const trakt_notes = (() => {
   const cache = new Map(); // show_id -> { note_id, text }
@@ -196,14 +184,7 @@ const trakt_notes = (() => {
   };
 })();
 
-const notes = {
-  async get(show_id) {
-    return trakt_notes.get(show_id);
-  },
-  async set(show_id, text) {
-    await trakt_notes.set(show_id, text);
-  },
-};
+const notes = trakt_notes;
 
 function sort_title(title) {
   return title.replace(/^(A|The) /i, "");

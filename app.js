@@ -69,6 +69,22 @@ async function trakt_get(path, access_token) {
   return response.json();
 }
 
+async function trakt_post_authed(path, params) {
+  const response = await fetch(`${TRAKT_API_BASE}${path}`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "Authorization": `Bearer ${current_access_token}`,
+      "trakt-api-version": "2",
+      "trakt-api-key": TRAKT_CLIENT_ID,
+    },
+    body: JSON.stringify(params),
+  });
+  if (response.status === 401) throw new AuthError("Token expired or invalid");
+  if (!response.ok) throw new Error(`Trakt API error ${response.status}`);
+  return response.json();
+}
+
 async function trakt_post (path, params) {
   return await fetch(`${TRAKT_API_BASE}${path}`, {
     method: "POST",
@@ -120,6 +136,8 @@ function sort_title(title) {
 }
 
 // --- Rendering ---
+
+let current_open_show = null;
 
 function render_show_row(item) {
   const { show } = item;
@@ -182,6 +200,22 @@ function render_show_row(item) {
     return progress;
   }).catch(() => null);
 
+  row_div._refresh_header = async () => {
+    try {
+      const progress = await trakt_get(
+        `/shows/${show.ids.trakt}/progress/watched`,
+        current_access_token
+      );
+      const unseen = (progress.aired ?? 0) - (progress.completed ?? 0);
+      if (progress.next_episode) {
+        const ep = progress.next_episode;
+        next_line.textContent = `Up next S${ep.season}E${ep.number} — ${unseen} episode${unseen !== 1 ? "s" : ""} left`;
+      } else {
+        next_line.textContent = unseen > 0 ? `${unseen} episode${unseen !== 1 ? "s" : ""} left` : "All caught up!";
+      }
+    } catch {}
+  };
+
   // Fetch poster eagerly
   if (show.ids.tmdb) {
     tmdb_get(`/tv/${show.ids.tmdb}`).then(tmdb => {
@@ -195,6 +229,13 @@ function render_show_row(item) {
   let seasons_rendered = false;
   header_div.addEventListener("click", async () => {
     const opening = expanded_div.hidden;
+
+    if (current_open_show && current_open_show !== expanded_div) {
+      current_open_show.hidden = true;
+      current_open_show.closest(".show-row").classList.remove("open");
+    }
+    current_open_show = opening ? expanded_div : null;
+
     expanded_div.hidden = !opening;
     row_div.classList.toggle("open", opening);
     if (!expanded_div.hidden && !seasons_rendered) {
@@ -229,6 +270,7 @@ function render_season_row(season, show_id, auto_open = false) {
   const summary = document.createElement("summary");
   summary.className = "season-summary";
   const season_label = season.number === 0 ? "Specials" : `Season ${season.number}`;
+  summary.dataset.seasonLabel = season_label;
   const unseen_count = season.aired - season.completed;
   if (unseen_count > 0) summary.style.fontWeight = "bold";
   const count_label = unseen_count > 0 ? ` (${season.completed} seen, ${unseen_count} unseen)` : "";
@@ -273,13 +315,66 @@ function render_episode_row(episode, auto_open = false) {
   const div = document.createElement("div");
   div.className = `episode-row ${episode.completed ? "watched" : "unwatched"}`;
   const ep_num = `E${String(episode.number).padStart(2, "0")}`;
+  const ep_text = `${ep_num}${episode.title ? ` — ${episode.title}` : ""}`;
+
+  const checkbox = document.createElement("input");
+  checkbox.type = "checkbox";
+  checkbox.className = "episode-checkbox";
+  checkbox.checked = !!episode.completed;
+  checkbox.addEventListener("change", async () => {
+    checkbox.disabled = true;
+    try {
+      if (checkbox.checked) {
+        await trakt_post_authed("/sync/history", { episodes: [{ ids: { trakt: episode.ids.trakt } }] });
+      } else {
+        await trakt_post_authed("/sync/history/remove", { episodes: [{ ids: { trakt: episode.ids.trakt } }] });
+      }
+      const watched = checkbox.checked;
+      div.className = `episode-row ${watched ? "watched" : "unwatched"}`;
+      const color = watched ? "#888" : "#000";
+      div.querySelectorAll(".episode-summary, .episode-overview").forEach(el => {
+        el.style.color = color;
+      });
+      if (watched) {
+        const details = div.querySelector("details");
+        if (details) details.open = false;
+      }
+      const episodes_list = div.closest(".episodes-list");
+      if (episodes_list) {
+        const first_unseen = Array.from(episodes_list.querySelectorAll(".episode-row"))
+          .find(row => !row.querySelector(".episode-checkbox").checked);
+        if (first_unseen) {
+          const details = first_unseen.querySelector("details");
+          if (details) details.open = true;
+        }
+      }
+      const season_row = div.closest(".season-row");
+      if (season_row) {
+        const checkboxes = Array.from(season_row.querySelectorAll(".episode-checkbox"));
+        const seen = checkboxes.filter(cb => cb.checked).length;
+        const unseen = checkboxes.length - seen;
+        const season_summary = season_row.querySelector("summary.season-summary");
+        season_summary.style.fontWeight = unseen > 0 ? "bold" : "normal";
+        const label = season_summary.dataset.seasonLabel;
+        season_summary.textContent = unseen > 0 ? `${label} (${seen} seen, ${unseen} unseen)` : label;
+      }
+      div.closest(".show-row")?._refresh_header?.();
+    } catch (error) {
+      checkbox.checked = !checkbox.checked;
+    } finally {
+      checkbox.disabled = false;
+    }
+  });
+
   if (episode.overview) {
     const details = document.createElement("details");
     if (auto_open) details.open = true;
     const summary = document.createElement("summary");
     summary.className = "episode-summary";
     summary.style.color = episode.completed ? "#888" : "#000";
-    summary.textContent = `${episode.completed ? "✓" : "○"} ${ep_num}${episode.title ? ` — ${episode.title}` : ""}`;
+    const label = document.createElement("span");
+    label.textContent = ep_text;
+    summary.append(checkbox, label);
     const overview = document.createElement("div");
     overview.className = "episode-overview";
     overview.style.color = episode.completed ? "#888" : "#000";
@@ -287,8 +382,11 @@ function render_episode_row(episode, auto_open = false) {
     details.append(summary, overview);
     div.appendChild(details);
   } else {
-    div.textContent = `${episode.completed ? "✓" : "○"} ${ep_num}${episode.title ? ` — ${episode.title}` : ""}`;
+    const label = document.createElement("span");
+    label.textContent = ep_text;
+    div.append(checkbox, label);
   }
+
   return div;
 }
 
@@ -359,6 +457,7 @@ async function run_device_login() {
 
 async function load_watchlist(access_token) {
   current_access_token = access_token;
+  current_open_show = null;
   show_watchlist_view();
   const status_el = document.getElementById("watchlist-status");
   const grid_el = document.getElementById("shows-grid");

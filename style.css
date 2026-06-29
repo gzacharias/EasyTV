@@ -223,9 +223,17 @@ summary.season-summary::before {
 summary.episode-summary {
   list-style: none;
   cursor: pointer;
+  display: flex;
+  align-items: baseline;
+  gap: 0.4rem;
 }
 
 summary.episode-summary::-webkit-details-marker { display: none; }
+
+.episode-checkbox {
+  flex-shrink: 0;
+  cursor: pointer;
+}
 
 
 .episode-overview {

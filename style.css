@@ -140,6 +140,31 @@ button:disabled {
 .show-title-line {
   font-weight: 600;
   font-size: 1rem;
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+}
+
+.show-note {
+  font-size: 0.8rem;
+  font-weight: normal;
+  font-style: italic;
+  font-family: inherit;
+  color: #000;
+  border: none;
+  border-bottom: 1px solid transparent;
+  outline: none;
+  background: transparent;
+  flex: 1;
+  min-width: 6rem;
+}
+
+.show-note:focus {
+  border-bottom-color: #888;
+}
+
+.show-note::placeholder {
+  color: #888;
 }
 
 .show-next-line {

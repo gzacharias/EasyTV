@@ -131,6 +131,21 @@ async function poll_for_token(device_code, interval_seconds) {
   }
 }
 
+// --- Notes API ---
+
+const notes = {
+  async get(show_id) {
+    return localStorage.getItem(`easytv.note.${show_id}`) ?? "";
+  },
+  async set(show_id, text) {
+    if (text.trim()) {
+      localStorage.setItem(`easytv.note.${show_id}`, text);
+    } else {
+      localStorage.removeItem(`easytv.note.${show_id}`);
+    }
+  },
+};
+
 function sort_title(title) {
   return title.replace(/^(A|The) /i, "");
 }
@@ -159,7 +174,26 @@ function render_show_row(item) {
 
   const title_line = document.createElement("div");
   title_line.className = "show-title-line";
-  title_line.textContent = show.title;
+  const title_text = document.createElement("span");
+  title_text.textContent = show.title;
+
+  const note_input = document.createElement("input");
+  note_input.type = "text";
+  note_input.className = "show-note";
+  note_input.placeholder = "add note…";
+  notes.get(show.ids.trakt).then(text => { note_input.value = text; });
+
+  let note_saved_value = "";
+  note_input.addEventListener("focus", () => { note_saved_value = note_input.value; });
+  note_input.addEventListener("blur", () => {
+    if (note_input.value !== note_saved_value) {
+      notes.set(show.ids.trakt, note_input.value);
+    }
+  });
+  note_input.addEventListener("keydown", e => { if (e.key === "Enter") note_input.blur(); });
+  note_input.addEventListener("click", e => e.stopPropagation());
+
+  title_line.append(title_text, note_input);
 
   const next_line = document.createElement("div");
   next_line.className = "show-next-line";

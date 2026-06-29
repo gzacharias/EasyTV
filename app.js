@@ -206,8 +206,12 @@ function render_show_row(item) {
         const progress = await progress_promise;
         loading.remove();
         if (progress) {
+          let first_unseen_season_shown = false;
           for (const season of progress.seasons) {
-            expanded_div.appendChild(render_season_row(season, show.ids.trakt));
+            const has_unseen = (season.aired - season.completed) > 0;
+            const auto_open = has_unseen && !first_unseen_season_shown;
+            if (auto_open) first_unseen_season_shown = true;
+            expanded_div.appendChild(render_season_row(season, show.ids.trakt, auto_open));
           }
         }
       } catch (error) {
@@ -219,10 +223,9 @@ function render_show_row(item) {
   return row_div;
 }
 
-function render_season_row(season, show_id) {
+function render_season_row(season, show_id, auto_open = false) {
   const details = document.createElement("details");
   details.className = "season-row";
-
   const summary = document.createElement("summary");
   summary.className = "season-summary";
   const season_label = season.number === 0 ? "Specials" : `Season ${season.number}`;
@@ -260,6 +263,8 @@ function render_season_row(season, show_id) {
       episodes_div.textContent = `Error loading episodes: ${error.message}`;
     }
   });
+
+  if (auto_open) details.open = true;
 
   return details;
 }

@@ -69,21 +69,27 @@ async function trakt_get(path, access_token) {
   return response.json();
 }
 
-async function trakt_post_authed(path, params) {
+async function trakt_authed(method, path, params = null) {
   const response = await fetch(`${TRAKT_API_BASE}${path}`, {
-    method: "POST",
+    method,
     headers: {
       "Content-Type": "application/json",
       "Authorization": `Bearer ${current_access_token}`,
       "trakt-api-version": "2",
       "trakt-api-key": TRAKT_CLIENT_ID,
     },
-    body: JSON.stringify(params),
+    body: params ? JSON.stringify(params) : undefined,
   });
   if (response.status === 401) throw new AuthError("Token expired or invalid");
-  if (!response.ok) throw new Error(`Trakt API error ${response.status}`);
+  if (!response.ok) {
+    const body = await response.text().catch(() => "");
+    throw new Error(`Trakt API error ${response.status}: ${body}`);
+  }
+  if (response.status === 204) return null;
   return response.json();
 }
+
+const trakt_post_authed = (path, params) => trakt_authed("POST", path, params);
 
 async function trakt_post (path, params) {
   return await fetch(`${TRAKT_API_BASE}${path}`, {
@@ -133,7 +139,7 @@ async function poll_for_token(device_code, interval_seconds) {
 
 // --- Notes API ---
 
-const notes = {
+const local_notes = {
   async get(show_id) {
     return localStorage.getItem(`easytv.note.${show_id}`) ?? "";
   },
@@ -143,6 +149,59 @@ const notes = {
     } else {
       localStorage.removeItem(`easytv.note.${show_id}`);
     }
+  },
+};
+
+const trakt_notes = (() => {
+  const cache = new Map(); // show_id -> { note_id, text }
+  let load_promise = null;
+
+  function load_all() {
+    if (!load_promise) {
+      load_promise = trakt_get("/users/me/notes/shows", current_access_token)
+        .then(items => {
+          for (const item of items) {
+            cache.set(item.show.ids.trakt, { note_id: item.note.id, text: item.note.notes });
+          }
+        }).catch(() => {});
+    }
+    return load_promise;
+  }
+
+  return {
+    load_all,
+    reset() { cache.clear(); load_promise = null; },
+    async get(show_id) {
+      await load_all();
+      return cache.get(show_id)?.text ?? "";
+    },
+    async set(show_id, text) {
+      await load_all();
+      const existing = cache.get(show_id);
+      if (!text.trim()) {
+        if (existing) {
+          await trakt_authed("DELETE", `/notes/${existing.note_id}`);
+          cache.delete(show_id);
+        }
+      } else if (existing) {
+        await trakt_authed("PUT", `/notes/${existing.note_id}`, { notes: text });
+        existing.text = text;
+      } else {
+        const result = await trakt_authed("POST", "/notes", {
+          notes: text, show: { ids: { trakt: show_id } }
+        });
+        cache.set(show_id, { note_id: result.id, text });
+      }
+    },
+  };
+})();
+
+const notes = {
+  async get(show_id) {
+    return trakt_notes.get(show_id);
+  },
+  async set(show_id, text) {
+    await trakt_notes.set(show_id, text);
   },
 };
 
@@ -492,6 +551,8 @@ async function run_device_login() {
 async function load_watchlist(access_token) {
   current_access_token = access_token;
   current_open_show = null;
+  trakt_notes.reset();
+  trakt_notes.load_all();
   show_watchlist_view();
   const status_el = document.getElementById("watchlist-status");
   const grid_el = document.getElementById("shows-grid");

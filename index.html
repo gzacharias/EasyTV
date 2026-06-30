@@ -8,14 +8,13 @@
 </head>
 <body>
   <header>
-    <h1>EasyTV [5] <small style="font-weight:normal;font-size:0.7rem;color:#aaa">edit:39</small></h1>
+    <h1>EasyTV [5] <small style="font-weight:normal;font-size:0.7rem;color:#aaa">edit:40</small></h1>
     <div id="user-info"></div>
   </header>
 
   <main>
     <section id="login-section" hidden>
       <button id="login-btn">Log in with Trakt</button>
-      <div id="device-code-display" hidden></div>
       <div id="login-status"></div>
     </section>
 
@@ -25,6 +24,16 @@
       <div id="shows-grid"></div>
     </section>
   </main>
+
+  <dialog id="login-code-dialog">
+    <p>Enter this code on trakt.tv:</p>
+    <p id="dialog-code"></p>
+    <p id="dialog-copied" hidden>[copied to clipboard]</p>
+    <div id="dialog-buttons">
+      <button id="dialog-ok">Open Trakt</button>
+      <button id="dialog-cancel">Cancel</button>
+    </div>
+  </dialog>
 
   <script src="app.js"></script>
 </body>

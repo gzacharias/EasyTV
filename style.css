@@ -51,6 +51,38 @@ main {
   color: #c00;
 }
 
+#login-code-dialog {
+  border: 1px solid #ccc;
+  border-radius: 8px;
+  padding: 1.5rem;
+  font-family: inherit;
+  font-size: 1rem;
+  max-width: 320px;
+}
+
+#login-code-dialog::backdrop {
+  background: rgba(0,0,0,0.4);
+}
+
+#dialog-code {
+  font-size: 1.8rem;
+  font-weight: 700;
+  letter-spacing: 0.15em;
+  margin: 0.5rem 0;
+}
+
+#dialog-copied {
+  font-size: 0.85rem;
+  color: #555;
+  margin-bottom: 0.75rem;
+}
+
+#dialog-buttons {
+  display: flex;
+  gap: 0.5rem;
+  margin-top: 1rem;
+}
+
 #login-section:not([hidden]) {
   display: flex;
   flex-direction: column;

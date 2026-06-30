@@ -460,12 +460,9 @@ function render_episode_row(episode, auto_open = false) {
 // --- Views ---
 
 function show_login_view() {
-document.getElementById("login-section").hidden = false;
+  document.getElementById("login-section").hidden = false;
   document.getElementById("watchlist-section").hidden = true;
   document.getElementById("user-info").innerHTML = "";
-  const code_el = document.getElementById("device-code-display");
-  code_el.hidden = true;
-  code_el.innerHTML = "";
 }
 
 
@@ -474,18 +471,38 @@ function show_watchlist_view() {
   document.getElementById("watchlist-section").hidden = false;
 }
 
+function show_code_dialog(user_code, verification_url) {
+  return new Promise((resolve, reject) => {
+    const dialog = document.getElementById("login-code-dialog");
+    const code_el = document.getElementById("dialog-code");
+    const copied_el = document.getElementById("dialog-copied");
+    const ok_btn = document.getElementById("dialog-ok");
+    const cancel_btn = document.getElementById("dialog-cancel");
+
+    code_el.textContent = user_code;
+    copied_el.hidden = true;
+    navigator.clipboard.writeText(user_code).then(() => { copied_el.hidden = false; }).catch(() => {});
+
+    ok_btn.onclick = () => { dialog.close(); resolve(); };
+    cancel_btn.onclick = () => { dialog.close(); reject(new Error("Login cancelled")); };
+    dialog.oncancel = () => reject(new Error("Login cancelled"));
+
+    dialog.showModal();
+  });
+}
+
 async function run_device_login() {
   const status_el = document.getElementById("login-status");
-  const code_el = document.getElementById("device-code-display");
   const login_btn = document.getElementById("login-btn");
 
   login_btn.disabled = true;
   status_el.textContent = "Starting login…";
   status_el.className = "";
-  code_el.hidden = true;
 
   try {
     const device = await start_device_flow();
+
+    await show_code_dialog(device.user_code, device.verification_url);
 
     const popup_width = 520;
     const popup_height = 600;
@@ -494,23 +511,10 @@ async function run_device_login() {
     const auth_popup = window.open(device.verification_url, "trakt-auth",
       `width=${popup_width},height=${popup_height},left=${popup_left},top=${popup_top}`);
 
-    navigator.clipboard.writeText(device.user_code).then(() => {
-      const copied_span = document.createElement("span");
-      copied_span.textContent = " [copied to clipboard]";
-      code_el.appendChild(copied_span);
-    }).catch(() => {});
-
-    code_el.hidden = false;
-    const code_strong = document.createElement("strong");
-    code_strong.textContent = device.user_code;
-    code_el.textContent = "Enter this code in the popup: ";
-    code_el.appendChild(code_strong);
     status_el.textContent = "Waiting for authorization…";
 
     const token_data = await poll_for_token(device.device_code, device.interval);
     if (auth_popup && !auth_popup.closed) auth_popup.close();
-    code_el.hidden = true;
-    code_el.textContent = "";
     status_el.textContent = "";
     localStorage.setItem(trakt_access_token_key, token_data.access_token);
     await load_watchlist(token_data.access_token);

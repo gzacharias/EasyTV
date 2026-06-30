@@ -658,6 +658,10 @@ async function load_watchlist() {
 
 document.getElementById("login-btn").addEventListener("click", run_device_login);
 
+if (window.location.protocol !== "file:") {
+  document.getElementById("edit-counter").hidden = true;
+}
+
 (async () => {
   trakt_client_secret = await decrypt_key(TRAKT_ENCODED_KEY);
   if (!trakt_client_secret) {

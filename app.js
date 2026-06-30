@@ -183,6 +183,30 @@ function sort_title(title) {
   return title.replace(/^(A|The) /i, "");
 }
 
+function apply_sort(shows, sort_by) {
+  const sorted = [...shows];
+  if (sort_by === "alpha") {
+    sorted.sort((a, b) => sort_title(a.show.title).localeCompare(sort_title(b.show.title)));
+  } else if (sort_by === "watched") {
+    sorted.sort((a, b) => {
+      if (!a.last_watched_at && !b.last_watched_at) return 0;
+      if (!a.last_watched_at) return 1;
+      if (!b.last_watched_at) return -1;
+      return new Date(b.last_watched_at) - new Date(a.last_watched_at);
+    });
+  } else if (sort_by === "added") {
+    sorted.sort((a, b) => {
+      if (!a.listed_at && !b.listed_at) return 0;
+      if (!a.listed_at) return 1;
+      if (!b.listed_at) return -1;
+      return new Date(b.listed_at) - new Date(a.listed_at);
+    });
+  }
+  return sorted;
+}
+
+let all_shows = [];
+
 // --- Rendering ---
 
 let current_open_show = null;
@@ -567,20 +591,23 @@ async function load_watchlist(access_token) {
       const existing = shows_by_id.get(item.show.ids.trakt);
       if (existing) {
         existing.watched_count = watched_count;
+        existing.last_watched_at = item.last_watched_at;
       } else {
         shows_by_id.set(item.show.ids.trakt, {
           show: item.show,
           listed_at: item.last_watched_at,
+          last_watched_at: item.last_watched_at,
           watched_count,
         });
       }
     }
 
-    // Only shows with unwatched aired episodes, sorted by title
-    const shows = Array.from(shows_by_id.values())
+    all_shows = Array.from(shows_by_id.values())
       .filter(item => !hidden_ids.has(item.show.ids.trakt))
-      .filter(item => (item.show.aired_episodes ?? 0) > item.watched_count)
-      .sort((a, b) => sort_title(a.show.title).localeCompare(sort_title(b.show.title)));
+      .filter(item => (item.show.aired_episodes ?? 0) > item.watched_count);
+
+    const sort_select = document.getElementById("sort-select");
+    const shows = apply_sort(all_shows, sort_select.value);
 
     const logout_btn = document.createElement("button");
     logout_btn.id = "logout-btn";
@@ -594,10 +621,17 @@ async function load_watchlist(access_token) {
     user_info_el.textContent = profile.username + " ";
     user_info_el.appendChild(logout_btn);
 
-    status_el.textContent = `${shows.length} show${shows.length !== 1 ? "s" : ""}`;
-    for (const item of shows) {
-      grid_el.appendChild(render_show_row(item));
+    function render_shows(sorted) {
+      current_open_show = null;
+      grid_el.innerHTML = "";
+      status_el.textContent = `${sorted.length} show${sorted.length !== 1 ? "s" : ""}`;
+      for (const item of sorted) {
+        grid_el.appendChild(render_show_row(item));
+      }
     }
+
+    render_shows(shows);
+    sort_select.onchange = () => render_shows(apply_sort(all_shows, sort_select.value));
   } catch (error) {
     if (error instanceof AuthError) {
       localStorage.removeItem(trakt_access_token_key);

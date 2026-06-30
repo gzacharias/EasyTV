@@ -46,41 +46,6 @@ async function tmdb_get(path) {
   return response.json();
 }
 
-async function trakt_get(path, access_token) {
-  const response = await fetch(`${TRAKT_API_BASE}${path}`, {
-    headers: { "Content-Type": "application/json",
-	       "Authorization": `Bearer ${access_token}`,
-	       "trakt-api-version": "2",
-	       "trakt-api-key": TRAKT_CLIENT_ID,
-	     }
-    
-  });
-  if (response.status === 401) throw new AuthError("Token expired or invalid");
-  if (!response.ok) throw new Error(`Trakt API error ${response.status}`);
-  return response.json();
-}
-
-async function trakt_authed(method, path, params = null) {
-  const response = await fetch(`${TRAKT_API_BASE}${path}`, {
-    method,
-    headers: {
-      "Content-Type": "application/json",
-      "Authorization": `Bearer ${current_access_token}`,
-      "trakt-api-version": "2",
-      "trakt-api-key": TRAKT_CLIENT_ID,
-    },
-    body: params ? JSON.stringify(params) : undefined,
-  });
-  if (response.status === 401) throw new AuthError("Token expired or invalid");
-  if (!response.ok) {
-    const body = await response.text().catch(() => "");
-    throw new Error(`Trakt API error ${response.status}: ${body}`);
-  }
-  if (response.status === 204) return null;
-  return response.json();
-}
-
-const trakt_post_authed = (path, params) => trakt_authed("POST", path, params);
 
 async function trakt_post (path, params) {
   return await fetch(`${TRAKT_API_BASE}${path}`, {
@@ -90,14 +55,72 @@ async function trakt_post (path, params) {
   });
 }
 
-class AuthError extends Error {};
+const trakt_access_token_key = "easytv.trakt_access_token";
+const trakt_refresh_token_key = "easytv.trakt_refresh_token";
 
-let current_access_token = null;
+function trakt_access_token () {
+  return localStorage.getItem(trakt_access_token_key);
+}
+
+function set_trakt_access_data (data) {
+  if (data) {
+    localStorage.setItem(trakt_access_token_key, data.access_token);
+    localStorage.setItem(trakt_refresh_token_key, data.refresh_token);
+  } else {
+    localStorage.removeItem(trakt_access_token_key);
+    localStorage.removeItem(trakt_refresh_token_key);
+  }
+}
+
+
+
+async function trakt_authed(method, path, params = null) {
+  const do_request = () => {
+    const auth_token = trakt_access_token();
+    if (!auth_token) throw new Error("Trakt: not logged in");
+    return fetch(`${TRAKT_API_BASE}${path}`, {
+      method,
+      headers: {
+	"Content-Type": "application/json",
+	"Authorization": `Bearer ${auth_token}`,
+	"trakt-api-version": "2",
+	"trakt-api-key": TRAKT_CLIENT_ID,
+      },
+      body: params ? JSON.stringify(params) : undefined,
+    });
+  };
+  let response = await do_request();
+  if (response.status === 401) {
+    await refresh_access_token();
+    response = await do_request();
+  }
+  if (!response.ok) {
+    const body = await response.text().catch(() => "");
+    throw new Error(`Trakt API error ${response.status}: ${body}`);
+  }
+  if (response.status === 204) return null;
+  return response.json();
+}
+
+
+async function refresh_access_token() {
+  const refresh_token = localStorage.getItem(trakt_refresh_token_key);
+  if (!refresh_token) return;
+  set_trakt_access_data(null);
+  const response = await trakt_post("/oauth/token", {
+    refresh_token: refresh_token,
+    client_id: TRAKT_CLIENT_ID,
+    client_secret: trakt_client_secret,
+    redirect_uri: "urn:ietf:wg:oauth:2.0:oob",
+    grant_type: "refresh_token",
+  });
+  if (!response.ok) return;
+  const token_data = await response.json();
+  set_trakt_access_data(token_data);
+}
 
 
 // --- Auth / device flow ---
-
-const trakt_access_token_key = "easytv.trakt_access_token";
 
 async function start_device_flow() {
   const response = await trakt_post("/oauth/device/code", { client_id: TRAKT_CLIENT_ID });
@@ -115,7 +138,6 @@ async function poll_for_token(device_code, interval_seconds) {
       client_secret: trakt_client_secret
     });
     if (response.status === 200) return response.json();
-    // TODO: refresh it!!
     if (response.status === 410) throw new Error("Login code expired. Please try again.");
     if (response.status === 418) throw new Error("Authorization denied.");
     if (response.status === 429) { poll_interval *= 2; continue; }
@@ -134,7 +156,7 @@ const trakt_notes = (() => {
 
   function load_all() {
     if (!load_promise) {
-      load_promise = trakt_get("/users/me/notes/shows", current_access_token)
+      load_promise = trakt_authed("GET", "/users/me/notes/shows")
         .then(items => {
           for (const item of items) {
             cache.set(item.show.ids.trakt, { note_id: item.note.id, text: item.note.notes });
@@ -239,7 +261,10 @@ function render_show_row(item) {
   note_input.addEventListener("focus", () => { note_saved_value = note_input.value; });
   note_input.addEventListener("blur", () => {
     if (note_input.value !== note_saved_value) {
-      notes.set(show.ids.trakt, note_input.value);
+      notes.set(show.ids.trakt, note_input.value).catch(() => {
+        note_input.value = note_saved_value;
+        alert("Failed to save note.");
+      });
     }
   });
   note_input.addEventListener("keydown", e => { if (e.key === "Enter") note_input.blur(); });
@@ -275,9 +300,8 @@ function render_show_row(item) {
   row_div.appendChild(expanded_div);
 
   // Fetch progress eagerly — used for "Up next" and for expanding seasons
-  const progress_promise = trakt_get(
-    `/shows/${show.ids.trakt}/progress/watched?extended=full`,
-    current_access_token
+  const progress_promise = trakt_authed("GET",
+    `/shows/${show.ids.trakt}/progress/watched?extended=full`
   ).then(progress => {
     if (progress.next_episode) {
       const ep = progress.next_episode;
@@ -288,9 +312,8 @@ function render_show_row(item) {
 
   row_div._refresh_header = async () => {
     try {
-      const progress = await trakt_get(
-        `/shows/${show.ids.trakt}/progress/watched`,
-        current_access_token
+      const progress = await trakt_authed("GET",
+        `/shows/${show.ids.trakt}/progress/watched`
       );
       const unseen = (progress.aired ?? 0) - (progress.completed ?? 0);
       if (progress.next_episode) {
@@ -374,9 +397,8 @@ function render_season_row(season, show_id, auto_open = false) {
     episodes_loaded = true;
     episodes_div.textContent = "Loading…";
     try {
-      const episode_details = await trakt_get(
-        `/shows/${show_id}/seasons/${season.number}?extended=full`,
-        current_access_token
+      const episode_details = await trakt_authed("GET",
+        `/shows/${show_id}/seasons/${season.number}?extended=full`
       );
       episodes_div.textContent = "";
       let first_unseen_shown = false;
@@ -411,9 +433,9 @@ function render_episode_row(episode, auto_open = false) {
     checkbox.disabled = true;
     try {
       if (checkbox.checked) {
-        await trakt_post_authed("/sync/history", { episodes: [{ ids: { trakt: episode.ids.trakt } }] });
+        await trakt_authed("POST", "/sync/history", { episodes: [{ ids: { trakt: episode.ids.trakt } }] });
       } else {
-        await trakt_post_authed("/sync/history/remove", { episodes: [{ ids: { trakt: episode.ids.trakt } }] });
+        await trakt_authed("POST", "/sync/history/remove", { episodes: [{ ids: { trakt: episode.ids.trakt } }] });
       }
       const watched = checkbox.checked;
       div.className = `episode-row ${watched ? "watched" : "unwatched"}`;
@@ -535,8 +557,8 @@ async function run_device_login() {
     const token_data = await poll_for_token(device.device_code, device.interval);
     if (auth_popup && !auth_popup.closed) auth_popup.close();
     status_el.textContent = "";
-    localStorage.setItem(trakt_access_token_key, token_data.access_token);
-    await load_watchlist(token_data.access_token);
+    set_trakt_access_data(token_data);
+    await load_watchlist();
   } catch (error) {
     status_el.textContent = error.message;
     status_el.className = "error";
@@ -545,8 +567,7 @@ async function run_device_login() {
   }
 }
 
-async function load_watchlist(access_token) {
-  current_access_token = access_token;
+async function load_watchlist() {
   current_open_show = null;
   trakt_notes.reset();
   trakt_notes.load_all();
@@ -559,12 +580,12 @@ async function load_watchlist(access_token) {
 
   try {
     const [profile, watchlist_items, watched_items] = await Promise.all([
-      trakt_get("/users/me", access_token),
-      trakt_get("/users/me/watchlist/shows?extended=full", access_token),
-      trakt_get("/users/me/watched/shows?extended=full", access_token),
+      trakt_authed("GET", "/users/me"),
+      trakt_authed("GET", "/users/me/watchlist/shows?extended=full"),
+      trakt_authed("GET", "/users/me/watched/shows?extended=full"),
     ]);
 
-    const hidden_items = await trakt_get("/users/hidden/progress_watched?type=show&limit=1000", access_token)
+    const hidden_items = await trakt_authed("GET", "/users/hidden/progress_watched?type=show&limit=1000")
       .catch(e => { console.warn("Hidden shows fetch failed:", e.message); return []; });
     const hidden_ids = new Set(hidden_items.map(item => item.show.ids.trakt));
 
@@ -608,7 +629,7 @@ async function load_watchlist(access_token) {
     logout_btn.id = "logout-btn";
     logout_btn.textContent = "Log out";
     logout_btn.addEventListener("click", () => {
-      localStorage.removeItem(trakt_access_token_key);
+      set_trakt_access_data(null);
       show_login_view();
     });
 
@@ -628,14 +649,8 @@ async function load_watchlist(access_token) {
     render_shows(shows);
     sort_select.onchange = () => render_shows(apply_sort(all_shows, sort_select.value));
   } catch (error) {
-    if (error instanceof AuthError) {
-      localStorage.removeItem(trakt_access_token_key);
-      show_login_view();
-      document.getElementById("login-status").textContent = "Session expired. Please log in again.";
-    } else {
-      status_el.textContent = error.message;
-      status_el.className = "error";
-    }
+    status_el.textContent = error.message;
+    status_el.className = "error";
   }
 }
 
@@ -654,9 +669,8 @@ document.getElementById("login-btn").addEventListener("click", run_device_login)
   }
   tmdb_api_key = await decrypt_key(TMDB_ENCODED_KEY);
 
-  const stored_token = localStorage.getItem(trakt_access_token_key);
-  if (stored_token) {
-    load_watchlist(stored_token);
+  if (trakt_access_token()) {
+    load_watchlist();
   } else {
     show_login_view();
   }

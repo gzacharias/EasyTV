@@ -7,11 +7,7 @@ const TRAKT_CLIENT_ID = "f2b09c63e8841656e79fb32c0c7e843146b19d96bac5b3d2f82a6e4
 const TRAKT_ENCODED_KEY = {"salt":"klYpRInm/JtTWZc/zmwKcQ==","iv":"r2sUoMw2WNrYwXNm","data":"EFJEKXfoquT8dblEPRuw/zf05KqvjEf2QnynnE0xcT4/r9fAO4eegt51NYIRY84QjKG5oBxx/Ur0R3bP88BmNk8+6uELodb3+iSy1zxeNyk="};
 const TMDB_ENCODED_KEY = {"salt":"0UwWowwSjsJMU4POKsV4Ig==","iv":"+bx/lXgl60BWzgFL","data":"5Gvc3sQEAjej4g9SmeU0lufPuU6jJZ/kDQZ8ojZd7u2KEY5Kzf5Lhr3WoyAIS0X0"};
 
-let cached_trakt_secret_promise = Promise.resolve(null);
-async function trakt_client_secret() {
-  return await cached_trakt_secret_promise ||
-	await (cached_trakt_secret_promise = decrypt_key(TRAKT_ENCODED_KEY));
-}
+let trakt_client_secret_value = null;
 
 let cached_tmdb_key_promise = Promise.resolve(null);
 async function tmdb_api_key() {
@@ -115,16 +111,13 @@ async function start_device_flow() {
 }
 
 async function poll_for_token(device_code, interval_seconds) {
-  const client_secret = await trakt_client_secret();
-  // TODO: just don't allow aborting trakt_client_secret to fail
-  if (client_secret === null) throw new Error("Passphrase required to use this app");
   let poll_interval = (interval_seconds ?? 5) * 1000;
   while (true) {
     await new Promise(resolve => setTimeout(resolve, poll_interval));
     const response = await trakt_post("/oauth/device/token", {
       code: device_code,
       client_id: TRAKT_CLIENT_ID,
-      client_secret: client_secret
+      client_secret: trakt_client_secret_value
     });
     if (response.status === 200) return response.json();
     // TODO: refresh it!!
@@ -617,9 +610,19 @@ async function load_watchlist(access_token) {
 
 document.getElementById("login-btn").addEventListener("click", run_device_login);
 
-const stored_token = localStorage.getItem(trakt_access_token_key);
-if (stored_token) {
-  load_watchlist(stored_token);
-} else {
-  show_login_view();
-}
+(async () => {
+  trakt_client_secret_value = await decrypt_key(TRAKT_ENCODED_KEY);
+  if (!trakt_client_secret_value) {
+    document.getElementById("login-btn").hidden = true;
+    document.getElementById("login-status").textContent = "Passphrase required to use this app.";
+    document.getElementById("login-status").className = "error";
+    document.getElementById("login-section").hidden = false;
+    return;
+  }
+  const stored_token = localStorage.getItem(trakt_access_token_key);
+  if (stored_token) {
+    load_watchlist(stored_token);
+  } else {
+    show_login_view();
+  }
+})();

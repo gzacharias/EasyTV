@@ -78,6 +78,18 @@ let all_shows = [];
 
 let current_open_show = null;
 
+function parse_note(raw) {
+  const match = /^\{network:([^}]*)\}(.*)$/s.exec(raw);
+  if (match) return { network_note: match[1], title_note: match[2] };
+  return { network_note: "", title_note: raw };
+}
+
+function encode_note(network_note, title_note) {
+  const trimmed_network = network_note.trim();
+  const trimmed_title = title_note.trim();
+  return trimmed_network ? `{network:${trimmed_network}}${trimmed_title}` : trimmed_title;
+}
+
 function render_show_row(item) {
   const { show } = item;
   const unseen_count = (show.aired_episodes ?? 0) - item.watched_count;
@@ -104,20 +116,39 @@ function render_show_row(item) {
   note_input.type = "text";
   note_input.className = "show-note";
   note_input.placeholder = "add note…";
-  trakt.notes.get(show.ids.trakt).then(text => { note_input.value = text; });
 
-  let note_saved_value = "";
-  note_input.addEventListener("focus", () => { note_saved_value = note_input.value; });
-  note_input.addEventListener("blur", () => {
-    if (note_input.value !== note_saved_value) {
-      trakt.notes.set(show.ids.trakt, note_input.value).catch(() => {
-        note_input.value = note_saved_value;
-        alert("Failed to save note.");
-      });
-    }
+  const network_note_input = document.createElement("input");
+  network_note_input.type = "text";
+  network_note_input.className = "show-note show-network-note";
+  network_note_input.placeholder = "add note…";
+
+  let saved_note = "";
+  trakt.notes.get(show.ids.trakt).then(raw => {
+    saved_note = raw;
+    const { network_note, title_note } = parse_note(raw);
+    note_input.value = title_note;
+    network_note_input.value = network_note;
   });
-  note_input.addEventListener("keydown", e => { if (e.key === "Enter") note_input.blur(); });
-  note_input.addEventListener("click", e => e.stopPropagation());
+
+  const save_note = () => {
+    const text = encode_note(network_note_input.value, note_input.value);
+    if (text === saved_note) return;
+    const previous = saved_note;
+    saved_note = text;
+    trakt.notes.set(show.ids.trakt, text).catch(() => {
+      saved_note = previous;
+      const { network_note, title_note } = parse_note(previous);
+      note_input.value = title_note;
+      network_note_input.value = network_note;
+      alert("Failed to save note.");
+    });
+  };
+
+  for (const input of [note_input, network_note_input]) {
+    input.addEventListener("blur", save_note);
+    input.addEventListener("keydown", e => { if (e.key === "Enter") input.blur(); });
+    input.addEventListener("click", e => e.stopPropagation());
+  }
 
   title_line.append(title_text, note_input);
 
@@ -127,7 +158,9 @@ function render_show_row(item) {
 
   const network_line = document.createElement("div");
   network_line.className = "show-network-line";
-  network_line.textContent = show.network ?? "";
+  const network_text = document.createElement("span");
+  network_text.textContent = show.network ?? "";
+  network_line.append(network_text, network_note_input);
 
   info_div.append(title_line, next_line, network_line);
   const meta_parts = [show.year, show.status].filter(Boolean);

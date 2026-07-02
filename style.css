@@ -220,6 +220,13 @@ button:disabled {
   font-size: 0.875rem;
   color: blue;
   margin-top: 0.1rem;
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+}
+
+.show-network-note {
+  color: inherit;
 }
 
 .show-expanded {

@@ -46,6 +46,8 @@ async function tmdb_get(path) {
 
 // --- Sort ---
 
+const sort_by_key = "easytv.sort_by";
+
 function sort_title(title) {
   return title.replace(/^(A|The) /i, "");
 }
@@ -494,6 +496,8 @@ async function load_watchlist() {
       .filter(item => (item.show.aired_episodes ?? 0) > item.watched_count);
 
     const sort_select = document.getElementById("sort-select");
+    const stored_sort = localStorage.getItem(sort_by_key);
+    if (stored_sort) sort_select.value = stored_sort;
     const shows = apply_sort(all_shows, sort_select.value);
 
     const logout_btn = document.createElement("button");
@@ -518,7 +522,10 @@ async function load_watchlist() {
     }
 
     render_shows(shows);
-    sort_select.onchange = () => render_shows(apply_sort(all_shows, sort_select.value));
+    sort_select.onchange = () => {
+      localStorage.setItem(sort_by_key, sort_select.value);
+      render_shows(apply_sort(all_shows, sort_select.value));
+    };
   } catch (error) {
     status_el.textContent = error.message;
     status_el.className = "error";

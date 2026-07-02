@@ -152,9 +152,11 @@ function render_show_row(item) {
 
   title_line.append(title_text, note_input);
 
+  const status_suffix = show.status && show.status !== "ended" ? ` (${show.status})` : "";
+
   const next_line = document.createElement("div");
   next_line.className = "show-next-line";
-  next_line.textContent = `${unseen_count} episode${unseen_count !== 1 ? "s" : ""} left`;
+  next_line.textContent = `${unseen_count} episode${unseen_count !== 1 ? "s" : ""} left${status_suffix}`;
 
   const network_line = document.createElement("div");
   network_line.className = "show-network-line";
@@ -183,7 +185,7 @@ function render_show_row(item) {
   const progress_promise = trakt.get_show_progress(show.ids.trakt, true).then(progress => {
     if (progress.next_episode) {
       const ep = progress.next_episode;
-      next_line.textContent = `Up next S${ep.season}E${ep.number} — ${unseen_count} episode${unseen_count !== 1 ? "s" : ""} left`;
+      next_line.textContent = `Up next S${ep.season}E${ep.number} — ${unseen_count} episode${unseen_count !== 1 ? "s" : ""} left${status_suffix}`;
     }
     return progress;
   }).catch(() => null);
@@ -194,9 +196,9 @@ function render_show_row(item) {
       const unseen = (progress.aired ?? 0) - (progress.completed ?? 0);
       if (progress.next_episode) {
         const ep = progress.next_episode;
-        next_line.textContent = `Up next S${ep.season}E${ep.number} — ${unseen} episode${unseen !== 1 ? "s" : ""} left`;
+        next_line.textContent = `Up next S${ep.season}E${ep.number} — ${unseen} episode${unseen !== 1 ? "s" : ""} left${status_suffix}`;
       } else {
-        next_line.textContent = unseen > 0 ? `${unseen} episode${unseen !== 1 ? "s" : ""} left` : "All caught up!";
+        next_line.textContent = (unseen > 0 ? `${unseen} episode${unseen !== 1 ? "s" : ""} left` : "All caught up!") + status_suffix;
       }
     } catch {}
   };
